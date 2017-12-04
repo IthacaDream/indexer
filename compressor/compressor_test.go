@@ -27,7 +27,7 @@ func TestEncodeAndDecode(t *testing.T) {
 	// fmt.Println(len(b.Bytes()))
 	// fmt.Println(len(b.String()))
 
-	fout, err := os.OpenFile("compress.data", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	fout, err := os.OpenFile("compress.data", os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		t.Errorf("open file error")
 	}
@@ -67,8 +67,7 @@ func TestEncodeAndDecode(t *testing.T) {
 	fmt.Println("buf read bytes: ", m)
 	fmt.Println(buf.Bytes())
 
-	result := make([]uint32, 0)
-	Decode(&buf, total_len, &result)
+	result := Decode(&buf, total_len)
 
 	fmt.Println("decode result:", result)
 

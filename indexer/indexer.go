@@ -18,11 +18,6 @@ import (
 )
 
 
-type DocInfo struct {
-	id int
-	doc_len int
-	wordlist_len int
-}
 
 type Indexer struct {
 	idx_file_ string
@@ -31,24 +26,33 @@ type Indexer struct {
 	partition_size_ uint
 	seg *segment.Segment
 	ht *hashtable.HashTable
-	doc_info_ []DocInfo
+	doc_info_ []utils.DocInfo
 	index_buffer_ []bytes.Buffer
 	pre_doc_seq_c_ []int
 	index_dir_ string
-	logger *log
+	word_info_file_ string
+	doc_info_file_ string
+	logger *log.Logger
 }
 
 
-func (index *Indexer) Init(index_dir string, idx_file string){
+func (index *Indexer) Init(
+	index_dir string,
+	idx_file string,
+	word_info_file string,
+	doc_info_file string) {
+	
 	index.seg = new(segment.Segment)
 	index.seg.Init()
 	index.ht = new(hashtable.HashTable)
 	index.ht.Init(1024*1024)
-	index.doc_info_ = make([]DocInfo, 100000)
+	index.doc_info_ = make([]utils.DocInfo, 100000)
 	index.index_buffer_ = make([]bytes.Buffer, 300000)
 	index.pre_doc_seq_c_ = make([]int, 300000)
 	index.index_dir_ = index_dir
 	index.idx_file_ = idx_file
+	index.word_info_file_ = word_info_file
+	index.doc_info_file_ = doc_info_file
 	index.word_seq_ = new(int32)
 	index.pre_word_seq_ = new(int32)
 	*(index.word_seq_) = 0
@@ -56,6 +60,7 @@ func (index *Indexer) Init(index_dir string, idx_file string){
 	index.partition_size_ = 128
 	index.logger = log.New(os.Stdout, "[indexer] ", log.Ldate|log.Ltime|log.Lshortfile)
 }
+
 
 func (index *Indexer) Release(){
 	index.seg.Free()
@@ -80,6 +85,7 @@ func (index *Indexer) IndexAll(file string) int {
 			if err == io.EOF {
 				break
 			}
+			fin.Close()
 			return -1
 		}
 
@@ -90,8 +96,8 @@ func (index *Indexer) IndexAll(file string) int {
 		subject, _ := strconv.ParseInt(items[2], 10, 32)
 		question := items[3]
 
-		index.doc_info_[doc_seq].id = int(question_id)
-		index.doc_info_[doc_seq].doc_len = len(question)
+		index.doc_info_[doc_seq].Id = int(question_id)
+		index.doc_info_[doc_seq].DocLen = len(question)
 
 		index.IndexOne(int(subject), question, doc_seq)
 
@@ -106,9 +112,7 @@ func (index *Indexer) IndexAll(file string) int {
 
 	index.Merge()
 
-	/*
-	index.Complete()
-  */
+	index.Complete(doc_seq)
 	
 	return 0
 }
@@ -122,10 +126,10 @@ func (index *Indexer) IndexOne(subject int,
 		is_math = true
 	}
 
-	result := make([]segment.SegRes, 0)
-	index.seg.DoSegment(question, &result)
+	seg_result := index.seg.DoSegment(question)
 
-	for _, sr := range result {
+	for _, sr := range seg_result {
+
 		// index.logger.Printf("%s\t%s\t%d\n", sr.Word, sr.Tag, sr.Times)
 
 		if !is_math && sr.Tag == "x" {
@@ -171,7 +175,6 @@ func (index *Indexer) IndexWord(
 
 	return 0
 }
-
 
 
 func (index *Indexer) WriteBuffer(word_id int32) {
@@ -283,10 +286,37 @@ func (index *Indexer) Merge() int {
 	for ; word_id < *index.word_seq_; word_id++ {
 		buf = new(bytes.Buffer)
 		binary.Write(buf, binary.LittleEndian, index_offset[word_id])
-		index.logger.Println("offset: ", word_id, index_offset[word_id])
+		// index.logger.Println("offset: ", word_id, index_offset[word_id])
 		fout.Write(buf.Bytes())
 	}
 	
 	fout.Close()
+	return 0
+}
+
+func (index *Indexer) Complete(doc_seq int) {
+	index.ht.Save(index.word_info_file_)
+	index.SaveDocInfo(doc_seq)
+	
+}
+
+func (index *Indexer) SaveDocInfo(doc_seq int) int {
+	fout, err := os.OpenFile(index.doc_info_file_, os.O_RDWR|os.O_CREATE, 0766)
+	if err != nil {
+		index.logger.Fatal(err)
+		return -1
+	}
+
+	fout.WriteString(fmt.Sprintf("%d\n", doc_seq))
+
+	for i := 0; i < doc_seq; i++ {
+		fout.WriteString(fmt.Sprintf("%d %d\n", index.doc_info_[i].Id, index.doc_info_[i].DocLen))
+	}
+
+	if err := fout.Close(); err != nil {
+		index.logger.Fatal(err)
+		return -1
+	}
+	
 	return 0
 }
